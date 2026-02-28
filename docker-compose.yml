@@ -1,0 +1,78 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orbit
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: orbit
+      MINIO_ROOT_PASSWORD: orbit123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://orbit:orbit@postgres:5432/orbit
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: orbit
+      S3_SECRET_KEY: orbit123
+      S3_BUCKET: orbit-artifacts
+      WORKER_WEBHOOK_URL: http://worker:5001
+    ports:
+      - "4000:4000"
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  worker:
+    build:
+      context: ./worker
+    environment:
+      PORT: 5001
+      REDIS_URL: redis://redis:6379
+      SANDBOX_IMAGE: orbit-sandbox:latest
+      ARTIFACTS_DIR: /artifacts
+    volumes:
+      - ./sandbox:/sandbox
+      - ./artifacts:/artifacts
+    depends_on:
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+      NEXT_PUBLIC_LOG_WS_URL: ws://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  minio_data:
